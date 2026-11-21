@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: scheduler
+      POSTGRES_USER: scheduler
+      POSTGRES_PASSWORD: scheduler_dev_password
+    volumes:
+      - scheduler-postgres:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scheduler -d scheduler"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgres://scheduler:scheduler_dev_password@postgres:5432/scheduler?sslmode=disable
+      API_KEY: local-scheduler-key
+    ports:
+      - "127.0.0.1:8090:8090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+  worker:
+    build: .
+    entrypoint: ["/worker"]
+    environment:
+      SCHEDULER_URL: http://app:8090
+      API_KEY: local-scheduler-key
+      WORKER_ID: docker-worker-1
+    depends_on:
+      app:
+        condition: service_started
+volumes:
+  scheduler-postgres:

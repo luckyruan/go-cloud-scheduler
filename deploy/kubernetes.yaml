@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: scheduler-secret
+type: Opaque
+stringData:
+  database-url: postgres://scheduler:change-me@postgres:5432/scheduler?sslmode=disable
+  api-key: change-me
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scheduler-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: scheduler-api}
+  template:
+    metadata:
+      labels: {app: scheduler-api}
+    spec:
+      containers:
+        - name: api
+          image: your-registry/go-cloud-scheduler:latest
+          env:
+            - name: DATABASE_URL
+              valueFrom: {secretKeyRef: {name: scheduler-secret, key: database-url}}
+            - name: API_KEY
+              valueFrom: {secretKeyRef: {name: scheduler-secret, key: api-key}}
+          ports: [{containerPort: 8090}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8090}, initialDelaySeconds: 3, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /healthz, port: 8090}, initialDelaySeconds: 10, periodSeconds: 10}
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scheduler-api
+spec:
+  selector: {app: scheduler-api}
+  ports: [{port: 8090, targetPort: 8090}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scheduler-worker
+spec:
+  replicas: 3
+  selector:
+    matchLabels: {app: scheduler-worker}
+  template:
+    metadata:
+      labels: {app: scheduler-worker}
+    spec:
+      containers:
+        - name: worker
+          image: your-registry/go-cloud-scheduler:latest
+          command: ["/worker"]
+          env:
+            - {name: SCHEDULER_URL, value: "http://scheduler-api:8090"}
+            - name: API_KEY
+              valueFrom: {secretKeyRef: {name: scheduler-secret, key: api-key}}
+            - name: WORKER_ID
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
